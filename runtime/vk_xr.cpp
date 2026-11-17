@@ -309,7 +309,14 @@ bool init() {
     x.tried = true;
     if (!cfg_bool("NX2NAVI_VR")) return false;
 #ifdef _WIN32
-    void *lib = plat_lib_open("openxr_loader.dll");
+    void *lib = NULL;
+    char beside[PLAT_PATH_MAX];
+    char *sep = plat_exe_path(beside, sizeof beside) ? plat_last_sep(beside) : NULL;
+    if (sep && (size_t)(sep + 1 - beside) + sizeof "openxr_loader.dll" <= sizeof beside) {
+        strcpy(sep + 1, "openxr_loader.dll");
+        if (plat_file_exists(beside)) lib = plat_lib_open(beside);
+    }
+    if (!lib) lib = plat_lib_open("openxr_loader.dll");
 #else
     // WiVRn installed from Flathub registers no runtime for programs outside the sandbox: its manifest is used when no
     // runtime is named
