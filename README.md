@@ -61,6 +61,81 @@ Report problems as issues, following [CONTRIBUTING.md](CONTRIBUTING.md).
 - The game's textures stay compressed (BC3, about half the video memory at the same speed) unless the PC has 20 GiB of
   video memory and 48 GiB of RAM, as Windows counts video memory against the system's commit limit
 
+## VR
+
+The game can be played in a VR headset through OpenXR.
+
+### Turning it on
+
+1. Connect the headset and start its OpenXR runtime before you start the game.
+2. Open the menu (F1), go to the **VR** tab and turn on **VR**, or put `vr = 1` under `[vr]` in `nx2navi.ini`.
+3. Restart the game.
+
+The game loads `openxr_loader.dll` from its own folder first, then from System32.
+
+### View
+
+| Feature | What it does |
+|---|---|
+| **Two VR modes** | **Immersive**: the world is around you in play and in cutscenes, and the game's camera follows your head. **Theater**: the game is on a large screen in front of you. |
+| **Floating screen** | 45 to 125 degrees wide, flat or curved around you. |
+| **Camera** | **First person** shows the world from Link's eyes. **Third person** uses the game's own camera, turned by your head. |
+| **Eye position** | Move your eyes up to 30 cm up, down, left, right, forward or back from Link's eyes. |
+| **Cutscenes** | Shown from a standing height for Link's age, with a **Cutscene height** setting to move it. |
+| **HUD** | On a panel in front of you, or in the picture, with a size setting. The performance overlay (F10) shows at the top of the panel. |
+| **Field of view** | 50 to 200 percent. |
+| **Pause** | The world stays around you, frozen, and the pause menu shows on the HUD's panel. |
+
+### Stereo
+
+The **Stereo** setting chooses how each eye gets its own picture:
+
+| Setting | What it does |
+|---|---|
+| **Performant** (default) | Makes both eyes from one picture and its depth. The **Depth** setting (0 to 200 percent) sets how strong the 3D is. |
+| **Balanced** | Draws the eyes in turn, so each eye sees true 3D. Each eye gets half the frame rate, and moving can judder a little. |
+| **Accurate** | Like Balanced, but both eyes show the same moment, so moving does not judder. The world moves at half speed. |
+
+### Controls
+
+Set **Control scheme** to **GamePad** to play with a gamepad, or to **Meta/Oculus** to play with the headset's hand
+controllers.
+
+| Hand controllers | What it does |
+|---|---|
+| **Buttons** | A and B are the game's own. X and Y do the same as A and B. A stick click jumps. The triggers are L and R. Tap Menu for Plus, and hold it for one second for Minus. |
+| **Sword** | Swing the sword hand fast to slash. Swing out and keep the hand out to the side to charge the attack. **Swing speed** and **Charge reach** set both. |
+| **Handedness** | **Left-handed** (default) or **Right-handed** sets the sword hand. The other hand holds the shield. |
+| **Running** | In first person, Link runs where you look. Inside the **Straight-ahead zone** (5 degrees by default) he runs straight, so small head moves do not steer him. |
+| **Item wheel** | Hold the right trigger, point the stick at a slot and let go to equip the item. It shows the game's own icons and names, in your language, and the ammunition left. Flick toward a slot to swap what it holds, for example bombs and bombchus. |
+| **D-pad wheel** | Hold the left trigger for the mask, Navi, the boots and the ocarina. |
+| **Ocarina** | While Link plays, the right stick and A play the notes. |
+
+The game pauses while a wheel is open.
+
+### Motion play
+
+Set **Play style** to **Motion** to play with your hands instead of buttons. This needs the hand controllers.
+
+- **Your gear in your hands**: the sword and shield Link has equipped, and the item he holds (bow, slingshot,
+  hookshot, boomerang, hammer, Deku Stick, bottles and what they hold). The models are read from your own game files.
+  Nothing is shipped.
+- **Link's hands**: an empty hand shows Link's own hand, adult or child.
+- **Link's own gear is hidden**, so you only see what is in your hands.
+- **Draw the sword and shield**: bring both hands together behind your head. Do it again to put them away.
+- **Raise the shield**: hold it in front of your eye on its side. This holds the Z lock.
+- **Take out an item**: press the grip while that hand is behind your head. With an item out, either grip uses it.
+- **Aim**: point the sword hand to aim the bow, the slingshot, the hookshot or the boomerang. A ring shows where the
+  shot lands. **Pointing angle** tilts the aim down (35 degrees by default). The game's motion controls must be on.
+- **Gestures for the D-pad**:
+
+  | Gesture | Action |
+  |---|---|
+  | Shake both arms up | Boots |
+  | Both hands together in front of your face | Ocarina |
+  | Both hands beside your head | Navi |
+  | Shake one hand sideways above your head | Mask |
+
 ## Installing
 
 Download `NX2navi-Setup-<version>.exe` from the releases and start it next to your `.nup` dump. It is the only file
