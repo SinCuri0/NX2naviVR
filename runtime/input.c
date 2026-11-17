@@ -25,6 +25,7 @@
 #include "nvn_api.h"
 #include "ui/menu.h"
 #include "vk.h"
+#include "vk_xr.h"
 #include "platform/platform.h"
 
 enum { STICK_MAX = 32767, STICK_DIR = 16384, TRIGGER_ON = 16384, RESCAN_MS = 1000 };
@@ -717,7 +718,12 @@ void input_rumble_hd_stop(void) {
     // The locks are tried for a while and not waited for: a thread of the game may hold one for good by now.
     for (int i = 0; i < 50 && !(got = plat_mutex_trylock(&lock)); i++) plat_wait_ns(1000000);
     if (!got) return;
-    plat_mutex_lock(&hd_lock);
+    got = 0;
+    for (int i = 0; i < 50 && !(got = plat_mutex_trylock(&hd_lock)); i++) plat_wait_ns(1000000);
+    if (!got) {   // a fatal error or a crash on the thread that writes the reports (dispatch.c rt_rumble_stop_bounded)
+        plat_mutex_unlock(&lock);
+        return;
+    }
     hd_ended = 1;
     int buzzing = rumble_hd_buzzing(&hd);
     rumble_hd_forget(&hd);
@@ -1027,21 +1033,23 @@ static void pick(int32_t *x, int32_t *y, int32_t kx, int32_t ky) {
 }
 
 // The shake key (B_SHAKE): the game detaches a part fused to the held object when the right stick swings left and
-// right a few times. A press swings it for SHAKE_NS, holding keeps it swinging; each side lasts SHAKE_SIDE_NS, two
-// frames at the game's 30 fps, so every side is read even at 20 fps. Returns the stick x, 0 while not shaking.
+// right a few times. A press swings it for SHAKE_NS, holding keeps it swinging. Each side lasts SHAKE_SIDE_STEPS
+// updates of the game, counted by its presents (frame_rate.c frame_step_presents), as two frames at the game's 30 fps
+// did, so the game sees the same swings at any frame rate. A side of a fixed time (two 30 fps frames, 67 ms) lasted 8
+// updates at 120 fps and 16 at 240. Returns the stick x, 0 while not shaking.
 // Under lock.
 #define SHAKE_NS 800000000ull
-#define SHAKE_SIDE_NS 66666667ull
+#define SHAKE_SIDE_STEPS 2
 static int32_t shake_stick(int held) {
     static int was;
     static uint64_t from, until;
-    uint64_t now = plat_now_ns();
-    if (held && !was && now >= until) from = now;
+    uint64_t now = plat_now_ns(), steps = frame_step_presents();
+    if (held && !was && now >= until) from = steps;
     if (held && !was) until = now + SHAKE_NS;
     if (held && until < now) until = now;
     was = held;
     if (now >= until && !held) return 0;
-    return (now - from) / SHAKE_SIDE_NS % 2 ? STICK_MAX : -STICK_MAX;
+    return (steps - from) / SHAKE_SIDE_STEPS % 2 ? STICK_MAX : -STICK_MAX;
 }
 
 // Under lock and inside sdl_enter (the gamepads' state is up to date), state 1: the open gamepad's inputs by position
@@ -1267,6 +1275,7 @@ static void poll_merged(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx
             if (travel - travel_seen >= MOUSE_USED) kbm_used = 1;
             travel_seen = travel;
         }
+        pad_used |= vk_xr_pad(&b, sl, sr);   // VR's hand controllers, as the pad
         // A press or a full-way stick on the pad wins over keys held in the same poll: the player picked it up
         if (pad_used) __atomic_store_n(&g_kbm_last, 0, __ATOMIC_RELAXED);
         else if (kbm_used) __atomic_store_n(&g_kbm_last, 1, __ATOMIC_RELAXED);

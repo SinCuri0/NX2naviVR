@@ -40,6 +40,7 @@
 #include <zstd.h>
 
 #include "bugcap.h"
+#include "vr_game.h"
 #include "cfg.h"
 #include "cpu.h"
 #include "debug_tools.h"
@@ -550,6 +551,36 @@ int dbg_texts(void (*cb)(uint32_t hash, const char *text, void *ctx), void *ctx)
     return n;
 }
 uint32_t dbg_name_hash(const char *name) { return hash_of(name); }
+int dbg_text_get(const char *name, char out[64]) { return dbg_supported() && text_get(name, out); }
+
+// An int (kind 2, entries of 0x28 bytes) or an enum (kind 6, 0x38 bytes, the value's name's hash) of the game data, its
+// value now at +0x1c. 0 when the game has no such entry.
+static void enum_set(Cpu *c, const char *name, const char *value);
+int dbg_int_get(const char *name, int32_t *v) {
+    uint64_t e = dbg_supported() ? gmd_entry(2, 0x28, hash_of(name)) : 0;
+    return e && rd(e + 0x1c, v, 4);
+}
+int dbg_enum_get(const char *name, uint32_t *value_hash) {
+    uint64_t e = dbg_supported() ? gmd_entry(6, 0x38, hash_of(name)) : 0;
+    return e && rd(e + 0x1c, value_hash, 4);
+}
+void dbg_enum_set(Cpu *c, const char *name, const char *value) {
+    if (dbg_supported() && gmd()) enum_set(c, name, value);
+}
+
+// One on/off flag of the game data by its name, as the game holds it now (kind 0: entries of 0x18 bytes, the value's
+// bit at +0x16, as dbg_flags_refresh reads them). 0 when the game has no such flag yet.
+int dbg_flag_get(const char *name, int *on) {
+    uint64_t e = dbg_supported() ? gmd_entry(0, 0x18, hash_of(name)) : 0;
+    uint8_t b;
+    if (!e || !rd(e + 0x16, &b, 1)) return 0;
+    *on = b & 1;
+    return 1;
+}
+
+// Link's actor (0 while there is none), and a write into memory the game reads and writes (0: not such memory)
+uint64_t dbg_player_actor(void) { return dbg_supported() ? player() : 0; }
+int dbg_poke(uint64_t addr, const void *from, size_t n) { return wr(addr, from, n); }
 
 // The area the game is in: its text Sequence_CurrentBanc. 0 while the game has none.
 int dbg_area(char out[64]) { return dbg_supported() && text_get("Sequence_CurrentBanc", out) && out[0]; }
@@ -934,6 +965,7 @@ void dbg_freecam_host(Cpu *c) {
         cam_seen[scene - 1].n++;
         plat_mutex_unlock(&cam_lock);
     }
+    if (!fc.on && scene) vr_camera_update(c, scene);   // VR's head view (vr_game.c); the free camera goes over it
     if (fc.on && scene) {
         if (fc.capture) {   // start where the game's camera is, looking where it looks
             double d[3] = {reg_d(c, 3) - reg_d(c, 0), reg_d(c, 4) - reg_d(c, 1), reg_d(c, 5) - reg_d(c, 2)};
@@ -1183,8 +1215,26 @@ void dbg_pad(uint64_t *buttons, int32_t *lx, int32_t *ly, int32_t *rx, int32_t *
 // <tick>:next <mode> <value>;<tick>:setfirst <value>;<tick>:holdfirst <value>;<tick>:show [<hash hex>];
 // <tick>:warp <area> [<start position>];<tick>:event <name>;<tick>:text <game data text's name>;
 // <tick>:freecam <0|1> <sticks 0|1> <speed>;<tick>:camavoid <0|1>;<tick>:camgo <dx> <dy> <dz> [<yaw> <pitch>];
-// <tick>:camreset;<tick>:campos":
+// <tick>:camfly <dx> <dy> <dz> <yaw> <pitch> <ticks>;<tick>:camreset;<tick>:campos":
 // the menu's requests without the menu, for test runs. Ticks count the game's pad reads from the player's first appearance.
+// camfly moves the free camera as camgo does, in equal steps over that many ticks: a flight across an area for a run
+// that measures what the moving view costs (video memory, frame time) without a route Link can get stuck on. A camfly
+// that comes while another runs takes over from where the camera is.
+static struct {
+    double d[3];              // per tick
+    float yaw, pitch;         // per tick
+    uint64_t left;            // ticks to go
+} fly;
+
+static void fly_tick(void) {
+    if (!fly.left) return;
+    for (int i = 0; i < 3; i++) fc.pos[i] += fly.d[i];
+    fc.yaw += fly.yaw, fc.pitch += fly.pitch;
+    fc.pitch = fc.pitch > 1.5f ? 1.5f : fc.pitch < -1.5f ? -1.5f : fc.pitch;
+    if (!--fly.left) rt_log("debug: camfly done: free camera at %.1f %.1f %.1f, yaw %.3f, pitch %.3f", fc.pos[0], fc.pos[1],
+                            fc.pos[2], fc.yaw, fc.pitch);
+}
+
 static void test_script(uint64_t tick) {
     static char buf[2048];
     static const char *next;
@@ -1224,6 +1274,14 @@ static void test_script(uint64_t tick) {
             if (sscanf(colon + 7, "%lf %lf %lf %f %f", &d[0], &d[1], &d[2], &yaw, &pitch) >= 3) {
                 for (int i = 0; i < 3; i++) fc.pos[i] += d[i];
                 fc.yaw += yaw, fc.pitch += pitch;
+            }
+        } else if (!strncmp(colon + 1, "camfly ", 7)) {     // camfly <dx> <dy> <dz> <yaw> <pitch> <ticks>
+            double d[3] = {0, 0, 0};
+            float yaw = 0, pitch = 0;
+            unsigned long long n = 0;
+            if (sscanf(colon + 8, "%lf %lf %lf %f %f %llu", &d[0], &d[1], &d[2], &yaw, &pitch, &n) == 6 && n > 0 && n <= 1000000) {
+                for (int i = 0; i < 3; i++) fly.d[i] = d[i] / (double)n;
+                fly.yaw = yaw / (float)n, fly.pitch = pitch / (float)n, fly.left = n;
             }
         } else if (!strncmp(colon + 1, "route ", 6)) {   // route <x> <z> [<x> <z> ...]: points in metres
             const char *q = colon + 7;
@@ -1319,6 +1377,7 @@ void dbg_tick(Cpu *c) {
     if (!dbg_supported() || (!tick && !player())) return;
     tick++;
     test_script(tick);
+    fly_tick();
     bugcap_replay_tick(tick);   // a replay of a bug capture: the teleport, the walk and the camera (bugcap.c)
     warp_tick(c, tick);
     static Req todo[Q_MAX];
